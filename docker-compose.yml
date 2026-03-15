@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3001:3001"
+    environment:
+      - PG_URL=${PG_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/dev.sqlite:/app/dev.sqlite
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:3001/api
+
+  worker:
+    build: ./workers
+    environment:
+      - PG_URL=${PG_URL}
+    volumes:
+      - ./workers/jobs:/app/jobs
+      - ./workers/done:/app/done
+      - ./workers/output:/app/output

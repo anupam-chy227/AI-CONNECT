@@ -1,0 +1,1 @@
+{"model_type": "LambdaMART_Stub", "features": ["visual_score", "style_score", "recency", "engagement"], "eval_ndcg": 0.82}

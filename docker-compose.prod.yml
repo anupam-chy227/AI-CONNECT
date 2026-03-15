@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: aiconnect/backend:latest
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PG_URL=${PG_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - aiconnect_net
+
+  workers:
+    build:
+      context: ./workers
+      dockerfile: Dockerfile
+    image: aiconnect/workers:latest
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=${REDIS_URL}
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+    networks:
+      - aiconnect_net
+
+networks:
+  aiconnect_net:
+    driver: bridge
