@@ -1,0 +1,22 @@
+# AIConnect Audit — First 40 lines
+
+# AIConnect Audit
+
+## Summary
+AIConnect is a compact monorepo for an AI-forward social playground that prototypes persona-driven media generation and sharing. The repository contains a frontend (React/Vite), a backend (Node/Express), and worker code for media generation. There are mission-style verification scripts and a handful of example payloads.
+
+## Files Reviewed
+- .gitignore
+- docker-compose.yml
+- docker-compose.prod.yml
+- prototype.html
+- README.md
+- package.json
+- gen_request.json
+- ltr_model.json
+
+## Current Observations
+1. Repo layout matches a typical 3-service monorepo: `/frontend`, `/backend`, `/workers` (references in README and scripts). Verify scripts import `./backend/src/*` directly.
+2. `docker-compose.yml` exposes `backend` (3001), `frontend` (5173) and `worker`, but does not include managed Postgres, Redis, or object storage services. Instead, backend mounts `dev.sqlite` and expects `PG_URL` envvar in some places.
+3. No SQL migrations or DDL found in repo; several test scripts call `db.query()` and create tables ad-hoc. This makes schema management and reproducible deployments brittle.
+4. There are backend services in `backend/src/services/*` (ltr, metrics, experiments, privacy_delete, media_cache, deepfake detector, provenance signer) but no centralized events/publisher module or websocket server implementation.

@@ -1,0 +1,25 @@
+{
+  "name": "aiconnect-backend",
+  "version": "1.0.0",
+  "description": "AIConnect Backend API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "migrate": "node src/migrations/run.js",
+    "build": "echo 'Backend ready for deployment'"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.8.3",
+    "pg": "^8.11.5",
+    "better-sqlite3": "^9.6.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

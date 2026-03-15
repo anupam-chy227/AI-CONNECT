@@ -1,0 +1,28 @@
+# Backend service Dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY backend/package*.json ./backend/
+COPY package*.json ./
+RUN cd backend && npm ci --only=production
+
+# Copy source
+COPY backend/src ./src
+COPY backend/src/migrations ./migrations
+
+# Create upload directory for media
+RUN mkdir -p uploads
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Environment variables (from docker-compose or deployment)
+ENV NODE_ENV=production
+ENV PORT=3001
+
+EXPOSE 3001
+
+CMD ["node", "src/server.js"]

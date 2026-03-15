@@ -1,0 +1,8 @@
+node_modules
+.git
+.env.local
+dev.sqlite
+workers/output
+artifacts
+docs
+tests

@@ -1,0 +1,195 @@
+# Auto-Publish Implementation Summary
+
+## Overview
+
+This implementation enables AIConnect to automatically publish AI-generated media to user feeds with comprehensive safety controls, realtime event broadcasting, and moderation oversight.
+
+## Architecture
+
+### 1. Media Generation Pipeline
+- **User Action**: Submit generation request via `/api/generate`
+- **Backend**: Queue job in Redis; return jobId to client
+- **Worker**: Process job (GPU model) → upload to MinIO S3
+- **Callback**: Worker calls `/internal/posts/create` with generated media URLs
+
+### 2. Auto-Publish Decision Logic
+Located in `backend/src/routes/internal.js`:
+
+```
+Check AUTO_PUBLISH_MODE env var
+├─ 'disabled' (default): All posts held for review
+├─ 'trusted': Auto-publish only for trusted users (>30 days old, no flags)
+└─ 'all': All posts auto-publish (high-risk)
+
+Override if safety violation detected:
+├─ Detection score < 0.8: Flag for review
+├─ Provenance.flagged=true: Flag for review
+└─ Policy keyword match: Auto-reject
+```
+
+### 3. Realtime Event Broadcasting
+- **Publisher** (`backend/src/events/publisher.js`): In-memory event bus
+- **WebSocket Server** (`backend/src/ws/server.js`): Socket.io with JWT auth
+- **Frontend Client** (`frontend/src/services/realtime.js`): Subscribes to `post.created` events
+
+Flow:
+```
+Worker → /internal/posts/create
+→ postService.createPost()
+→ publisher.publish('post.created', eventData)
+→ WebSocket server emits to all connected clients
+→ Frontend receives, prepends to feed UI
+```
+
+### 4. Safety & Moderation
+See [docs/safety.md](../docs/safety.md) for detailed policy.
+
+Key endpoints:
+- `GET /api/moderation/queue` - List flagged posts
+- `POST /api/moderation/:postId/action` - Approve/reject/escalate
+- `POST /api/reports/create` - User reports
+- `GET /api/posts/:postId/provenance` - Authenticity check
+
+## File Manifest
+
+### Backend Services
+
+| File | Purpose |
+|------|---------|
+| `backend/src/db.js` | Database abstraction (Postgres + SQLite fallback) |
+| `backend/src/services/postService.js` | Post creation with event publishing |
+| `backend/src/events/publisher.js` | In-memory event pub/sub system |
+| `backend/src/ws/server.js` | Socket.io WebSocket server with JWT auth |
+| `backend/src/routes/internal.js` | Worker callback endpoint + auto-publish logic |
+| `backend/src/routes/media.js` | Media status tracking (GET /api/media/status/:jobId) |
+| `backend/src/controllers/authController.js` | Register/login with JWT tokens |
+| `backend/src/middleware/authMiddleware.js` | Request token verification |
+
+### Frontend Services
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/services/realtime.js` | Socket.io client + React hooks |
+
+### Configuration & Documentation
+
+| File | Purpose |
+|------|---------|
+| `docs/safety.md` | Complete safety policy and moderation flows |
+| `docker-compose.yml` | Dev environment with all services |
+| `docker-compose.prod.yml` | Production with env variable placeholders |
+| `docs/env_vars.md` | Environment variable reference |
+| `backend/src/migrations/001_create_tables.sql` | Database schema (8 tables + indexes) |
+
+### Infrastructure
+
+| File | Purpose |
+|------|---------|
+| `infra/docker/Dockerfile.backend` | Backend service image |
+| `infra/docker/Dockerfile.frontend` | Frontend with nginx |
+| `infra/docker/Dockerfile.worker` | Worker service image |
+| `infra/docker/nginx.conf` | Nginx reverse proxy config |
+| `.github/workflows/ci.yml` | GitHub Actions CI/CD pipeline |
+| `tests/smoke/auto_publish_smoke.sh` | End-to-end smoke test |
+
+## Environment Variables
+
+### Development (docker-compose.yml defaults)
+```bash
+PG_URL=postgresql://aiconnect:devpass123@postgres:5432/aiconnect_dev
+REDIS_URL=redis://redis:6379
+MINIO_ENDPOINT=http://minio:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+JWT_SECRET=dev_jwt_secret_key_12345
+INTERNAL_TOKEN=dev_internal_token_secret
+WS_SECRET=dev_ws_secret_12345
+AUTO_PUBLISH_MODE=disabled
+```
+
+### Production (docker-compose.prod.yml templates)
+```bash
+# Set these at deployment time
+PG_URL=${PG_URL}
+JWT_SECRET=${JWT_SECRET}
+INTERNAL_TOKEN=${INTERNAL_TOKEN}
+WS_SECRET=${WS_SECRET}
+AUTO_PUBLISH_MODE=${AUTO_PUBLISH_MODE:-disabled}
+```
+
+## Testing
+
+### Run Smoke Test
+```bash
+docker-compose up -d
+sleep 10
+bash tests/smoke/auto_publish_smoke.sh
+```
+
+### Manual Flow Test
+```bash
+# 1. Register user
+curl -X POST http://localhost:3001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test","email":"test@test.com","password":"Test123!"}'
+
+# 2. Create persona
+curl -X POST http://localhost:3001/api/personas \
+  -H "Authorization: Bearer <token>" \
+  -d '{"name":"My AI","bio":"Test persona"}'
+
+# 3. Submit generation job
+curl -X POST http://localhost:3001/api/generate \
+  -H "Authorization: Bearer <token>" \
+  -d '{"personaId":"per_xyz","prompt":"cat","style":"realistic"}'
+
+# 4. Check media status
+curl http://localhost:3001/api/media/status/<jobId> \
+  -H "Authorization: Bearer <token>"
+
+# 5. Connect WebSocket and listen for post.created
+# Use tests/smoke/auto_publish_smoke.sh for full flow
+```
+
+## Security
+
+- **Bearer Token Auth**: All `/api/*` routes require JWT in `Authorization: Bearer` header
+- **Internal Token Auth**: `/internal/*` routes require exact `INTERNAL_TOKEN` match
+- **Password Hashing**: bcrypt with 10 rounds (see authController.js)
+- **No Secrets in Code**: All sensitive values via environment variables
+- **CORS**: Frontend origin validation in WebSocket server
+- **Rate Limiting**: Placeholder middleware (configure in production)
+
+## Deployment Checklist
+
+- [ ] Set `JWT_SECRET` to 32+ character random string
+- [ ] Set `INTERNAL_TOKEN` to 32+ character random string
+- [ ] Set `WS_SECRET` to 32+ character random string
+- [ ] Configure `AUTO_PUBLISH_MODE` (default: disabled)
+- [ ] Set `PG_URL` to production PostgreSQL
+- [ ] Set `REDIS_URL` to production Redis
+- [ ] Set `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
+- [ ] Update `FRONTEND_URL` in docker-compose
+- [ ] Run DB migrations: `npm run migrate`
+- [ ] Test `/internal/health` endpoint responds
+- [ ] Test WebSocket with `socket.io-client` library
+- [ ] Configure GitHub Actions secrets for CI/CD
+- [ ] Enable HTTPS/TLS for production
+- [ ] Set up monitoring for `/api/transparency/monthly` reports
+
+## Next Steps
+
+1. **Integration**: Wire up internal endpoint to worker image
+2. **Frontend UI**: Update Home.jsx to:
+   - Call `connectWebSocket(token)` on mount
+   - Listen to `post:created` event
+   - Prepend new posts to feed with animation
+3. **Moderation UI**: Build React components for `/api/moderation/queue` review
+4. **Analytics**: Implement `/api/transparency/monthly` dashboard
+5. **Performance**: Add Redis caching for post queries and WS subscriber tracking
+
+---
+
+**Author**: AI Connect Dev Team
+**Version**: 1.0
+**Last Updated**: January 2024
